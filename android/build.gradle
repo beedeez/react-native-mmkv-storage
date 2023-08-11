@@ -21,7 +21,7 @@ def getExtOrDefault(name, defaultValue) {
   return rootProject.ext.has(name) ? rootProject.ext.get(name) : defaultValue
 }
 
-def found = false
+def found = true
 def reactNativeDir = null
 def androidSourcesName = 'React Native sources'
 def parentDir = rootProject.projectDir
@@ -33,23 +33,6 @@ if (rootProject.ext.has('reactNativeAndroidRoot')) {
           projectDir,
           '/../../../node_modules/react-native/android'
   )
-}
-if (reactNativeDir.exists()) {
-  found = true
-} else {
-  1.upto(5, {
-    if (found) return true
-    parentDir = reactNativeDir.parentFile
-
-    reactNativeDir = new File(
-            parentDir,
-            'node_modules/react-native/android'
-    )
-
-    if (reactNativeDir.exists()) {
-      found = true
-    }
-  })
 }
 
 def reactNative = reactNativeDir.absolutePath;
@@ -66,7 +49,7 @@ android {
     minSdkVersion getExtOrDefault('minSdkVersion', 21)
     targetSdkVersion getExtOrDefault('targetSdkVersion', 28)
     //ndkVersion "21.1.6352462"
-    
+
     externalNativeBuild {
       cmake {
         cppFlags "-fexceptions", "-frtti", "-std=c++1y", "-DONANDROID"
@@ -100,7 +83,7 @@ android {
 repositories {
   mavenCentral()
   mavenLocal()
-  google()  
+  google()
 
   if (reactNativeDir.exists()) {
     maven {
@@ -116,7 +99,7 @@ repositories {
                     "Ensure you have you installed React Native as a dependency in your project and try again."
     )
   }
- 
+
 }
 
 dependencies {
