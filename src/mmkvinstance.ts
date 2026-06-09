@@ -568,10 +568,22 @@ export default class MMKVInstance {
   };
 
   /**
+   * Returns true if the native batch operations (getStringsMMKV/setStringsMMKV)
+   * are available in the current native binary.
+   */
+  hasBatchOps(): boolean {
+    return typeof mmkvJsiModule.getStringsMMKV === 'function'
+      && typeof mmkvJsiModule.setStringsMMKV === 'function';
+  }
+
+  /**
    * Batch-read multiple string keys in a single native call.
    * Skips indexing overhead. Returns an array of [key, value] pairs.
    */
   getStrings(keys: string[]): [string, string | null][] {
+    if (!mmkvJsiModule.getStringsMMKV) {
+      return keys.map(key => [key, this.getString(key) ?? null]);
+    }
     const results = handleAction(mmkvJsiModule.getStringsMMKV, keys, this.instanceID);
     if (!results) return keys.map(key => [key, null]);
     return keys.map((key, index) => [key, results[index] ?? null]);
@@ -582,6 +594,12 @@ export default class MMKVInstance {
    * Skips indexing overhead for maximum write performance.
    */
   setStrings(items: [string, string][]): boolean | undefined {
+    if (!mmkvJsiModule.setStringsMMKV) {
+      for (const [key, value] of items) {
+        this.setString(key, value);
+      }
+      return true;
+    }
     const keys = items.map(item => item[0]);
     const values = items.map(item => item[1]);
     return handleAction(mmkvJsiModule.setStringsMMKV, keys, values, this.instanceID);
