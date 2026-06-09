@@ -490,10 +490,10 @@ void installBindings(Runtime &jsiRuntime)
         for (int i = 0; i < size; i++)
         {
             auto key = std_string(keys.getValueAtIndex(runtime, i));
-            if (kv->containsKey(key))
+            std::string result;
+            bool exists = kv->getString(key, result);
+            if (exists)
             {
-                std::string result;
-                kv->getString(key, result);
                 values.setValueAtIndex(runtime, i, String::createFromUtf8(runtime, result));
             }
             else
@@ -503,6 +503,62 @@ void installBindings(Runtime &jsiRuntime)
         }
 
         return values;
+    });
+
+    CREATE_FUNCTION("getStringsMMKV", 2, {
+        auto keys = arguments[0].getObject(runtime).asArray(runtime);
+        auto kvName = std_string(arguments[1]);
+        auto kv = getInstance(kvName);
+        auto size = keys.length(runtime);
+
+        if (!kv)
+        {
+            return Value::undefined();
+        }
+
+        jsi::Array values = jsi::Array(runtime, size);
+
+        for (int i = 0; i < size; i++)
+        {
+            auto key = std_string(keys.getValueAtIndex(runtime, i));
+            std::string result;
+            bool exists = kv->getString(key, result);
+            if (exists)
+            {
+                values.setValueAtIndex(runtime, i, String::createFromUtf8(runtime, result));
+            }
+            else
+            {
+                values.setValueAtIndex(runtime, i, jsi::Value::null());
+            }
+        }
+
+        return values;
+    });
+
+    CREATE_FUNCTION("setStringsMMKV", 3, {
+        auto keys = arguments[0].getObject(runtime).asArray(runtime);
+        auto values = arguments[1].getObject(runtime).asArray(runtime);
+        auto kvName = std_string(arguments[2]);
+        auto kv = getInstance(kvName);
+        auto size = keys.length(runtime);
+
+        if (!kv)
+        {
+            return Value::undefined();
+        }
+
+        for (int i = 0; i < size; i++)
+        {
+            auto key = std_string(keys.getValueAtIndex(runtime, i));
+            const auto &val = values.getValueAtIndex(runtime, i);
+            if (val.isString())
+            {
+                kv->set(val.getString(runtime).utf8(runtime), key);
+            }
+        }
+
+        return jsi::Value(true);
     });
 
     CREATE_FUNCTION("setMapMMKV", 3, {

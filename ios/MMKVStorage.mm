@@ -404,17 +404,64 @@ static void install(jsi::Runtime &jsiRuntime) {
         jsi::Array values = jsi::Array(runtime, size);
         
         for (int i=0;i < size;i++) {
-            NSString *key =  convertJSIStringToNSString(runtime, keys.getValueAtIndex(runtime, i).asString(runtime));
-            if ([kv containsKey:key]) {
-                values.setValueAtIndex(runtime, i, convertNSStringToJSIString(runtime, [kv getStringForKey:key]));
+            NSString *key = convertJSIStringToNSString(runtime, keys.getValueAtIndex(runtime, i).asString(runtime));
+            NSString *value = [kv getStringForKey:key];
+            if (value != nil) {
+                values.setValueAtIndex(runtime, i, convertNSStringToJSIString(runtime, value));
             } else {
-                values.setValueAtIndex(runtime, i,  jsi::Value::undefined());
+                values.setValueAtIndex(runtime, i, jsi::Value::null());
             }
         }
         
-        
         return values;
     
+    });
+    
+    CreateFunction(jsiRuntime, "getStringsMMKV", 2, [=](Runtime &runtime, const Value &thisValue, const Value *arguments, size_t count) -> Value {
+        auto keys = arguments[0].getObject(runtime).asArray(runtime);
+        auto kvName = nsstring(arguments[1]);
+        auto size = keys.length(runtime);
+        MMKV *kv = getInstance(kvName);
+        
+        if (!kv) {
+            return Value::undefined();
+        }
+        
+        jsi::Array values = jsi::Array(runtime, size);
+        
+        for (int i = 0; i < size; i++) {
+            NSString *key = convertJSIStringToNSString(runtime, keys.getValueAtIndex(runtime, i).asString(runtime));
+            NSString *value = [kv getStringForKey:key];
+            if (value != nil) {
+                values.setValueAtIndex(runtime, i, convertNSStringToJSIString(runtime, value));
+            } else {
+                values.setValueAtIndex(runtime, i, jsi::Value::null());
+            }
+        }
+        
+        return values;
+    });
+    
+    CreateFunction(jsiRuntime, "setStringsMMKV", 3, [=](Runtime &runtime, const Value &thisValue, const Value *arguments, size_t count) -> Value {
+        auto keys = arguments[0].getObject(runtime).asArray(runtime);
+        auto vals = arguments[1].getObject(runtime).asArray(runtime);
+        auto kvName = nsstring(arguments[2]);
+        auto size = keys.length(runtime);
+        MMKV *kv = getInstance(kvName);
+        
+        if (!kv) {
+            return Value::undefined();
+        }
+        
+        for (int i = 0; i < size; i++) {
+            NSString *key = convertJSIStringToNSString(runtime, keys.getValueAtIndex(runtime, i).asString(runtime));
+            if (vals.getValueAtIndex(runtime, i).isString()) {
+                NSString *value = convertJSIStringToNSString(runtime, vals.getValueAtIndex(runtime, i).asString(runtime));
+                [kv setString:value forKey:key];
+            }
+        }
+        
+        return jsi::Value(true);
     });
     
     CREATE_FUNCTION("getStringMMKV", 2, {

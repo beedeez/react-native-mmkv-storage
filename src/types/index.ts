@@ -83,6 +83,9 @@ export type MMKVJsiModule = {
 
   getMultiMMKV: (keys: string[], id: string) => Promise<string[]>;
 
+  getStringsMMKV: (keys: string[], id: string) => (string | null)[];
+  setStringsMMKV: (keys: string[], values: string[], id: string) => boolean | undefined;
+
   setStringMMKV: (key: string, value: string, id: string) => boolean | undefined;
   getStringMMKV: (key: string, id: string) => string | null | undefined;
 

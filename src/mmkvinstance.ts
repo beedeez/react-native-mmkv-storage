@@ -568,6 +568,26 @@ export default class MMKVInstance {
   };
 
   /**
+   * Batch-read multiple string keys in a single native call.
+   * Skips indexing overhead. Returns an array of [key, value] pairs.
+   */
+  getStrings(keys: string[]): [string, string | null][] {
+    const results = handleAction(mmkvJsiModule.getStringsMMKV, keys, this.instanceID);
+    if (!results) return keys.map(key => [key, null]);
+    return keys.map((key, index) => [key, results[index] ?? null]);
+  }
+
+  /**
+   * Batch-write multiple string key/value pairs in a single native call.
+   * Skips indexing overhead for maximum write performance.
+   */
+  setStrings(items: [string, string][]): boolean | undefined {
+    const keys = items.map(item => item[0]);
+    const values = items.map(item => item[1]);
+    return handleAction(mmkvJsiModule.setStringsMMKV, keys, values, this.instanceID);
+  }
+
+  /**
    *
    * Get all Storage Instance IDs that are currently loaded.
    *
