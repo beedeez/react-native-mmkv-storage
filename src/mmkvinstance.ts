@@ -509,6 +509,29 @@ export default class MMKVInstance {
     let items: [string, T][] = [];
     if (type === 'map') type = 'object';
 
+    // string/array/object can be read in a single native batch call (one JSI
+    // crossing for N keys) instead of one native call per key. Mirrors
+    // getMultipleItemsAsync. Falls back to the per-key loop if the native
+    // batch function is unavailable in the current binary.
+    if (
+      (type === 'string' || type === 'array' || type === 'object') &&
+      typeof mmkvJsiModule.getMultiMMKV === 'function'
+    ) {
+      const result = handleAction(mmkvJsiModule.getMultiMMKV, keys, this.instanceID) || [];
+      return keys.map((key, index) => {
+        let value =
+          type === 'string'
+            ? (result[index] as T)
+            : ((result[index] ? JSON.parse(result[index]) : result[index]) as T);
+
+        if (this.transactions.onread[type]) {
+          value = this.transactions.transact(type as DataType, 'onread', key, value) as T;
+        }
+
+        return [key, value] as [string, T];
+      });
+    }
+
     if (type === 'string') {
       for (let i = 0; i < keys.length; i++) {
         const item: [string, T] = [keys[i], this.getString(keys[i]) as T];

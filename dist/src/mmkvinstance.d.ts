@@ -151,7 +151,7 @@ export default class MMKVInstance {
      *
      */
     getCurrentMMKVInstanceIDs(): {
-        [name: string]: boolean;
+        [x: string]: boolean;
     };
     /**
      *

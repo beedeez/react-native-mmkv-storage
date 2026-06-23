@@ -6,7 +6,7 @@ export declare const currentInstancesStatus: {
  * loaded since application started
  */
 export declare function getCurrentMMKVInstanceIDs(): {
-    [name: string]: boolean;
+    [x: string]: boolean;
 };
 /**
  *
