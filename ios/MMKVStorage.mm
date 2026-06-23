@@ -85,13 +85,9 @@ RCT_EXPORT_MODULE(MMKVStorage)
 }
 
 MMKV *getInstance(NSString *ID) {
-    if ([[mmkvInstances allKeys] containsObject:ID]) {
-        MMKV *kv = [mmkvInstances objectForKey:ID];
-        
-        return kv;
-    } else {
-        return NULL;
-    }
+    // objectForKey: returns nil when absent, so the extra allKeys/containsObject scan that built
+    // a full key array on every call is unnecessary.
+    return [mmkvInstances objectForKey:ID];
 }
 
 NSString *getServiceName(NSString *alias) {
@@ -405,18 +401,18 @@ static void install(jsi::Runtime &jsiRuntime) {
         
         for (int i=0;i < size;i++) {
             NSString *key = convertJSIStringToNSString(runtime, keys.getValueAtIndex(runtime, i).asString(runtime));
-            NSString *value = [kv getStringForKey:key];
+            NSData *value = [kv getDataForKey:key];
             if (value != nil) {
-                values.setValueAtIndex(runtime, i, convertNSStringToJSIString(runtime, value));
+                values.setValueAtIndex(runtime, i, jsi::String::createFromUtf8(runtime, (const uint8_t *)value.bytes, value.length));
             } else {
                 values.setValueAtIndex(runtime, i, jsi::Value::null());
             }
         }
-        
+
         return values;
-    
+
     });
-    
+
     CreateFunction(jsiRuntime, "getStringsMMKV", 2, [=](Runtime &runtime, const Value &thisValue, const Value *arguments, size_t count) -> Value {
         auto keys = arguments[0].getObject(runtime).asArray(runtime);
         auto kvName = nsstring(arguments[1]);
@@ -428,54 +424,61 @@ static void install(jsi::Runtime &jsiRuntime) {
         }
         
         jsi::Array values = jsi::Array(runtime, size);
-        
+
         for (int i = 0; i < size; i++) {
             NSString *key = convertJSIStringToNSString(runtime, keys.getValueAtIndex(runtime, i).asString(runtime));
-            NSString *value = [kv getStringForKey:key];
+            // Read the raw UTF-8 bytes directly and build the JSI string from them, skipping the
+            // NSString allocation + UTF-8 re-encode that getStringForKey + convertNSStringToJSIString
+            // would incur for every (potentially large) value.
+            NSData *value = [kv getDataForKey:key];
             if (value != nil) {
-                values.setValueAtIndex(runtime, i, convertNSStringToJSIString(runtime, value));
+                values.setValueAtIndex(runtime, i, jsi::String::createFromUtf8(runtime, (const uint8_t *)value.bytes, value.length));
             } else {
                 values.setValueAtIndex(runtime, i, jsi::Value::null());
             }
         }
-        
+
         return values;
     });
-    
+
     CreateFunction(jsiRuntime, "setStringsMMKV", 3, [=](Runtime &runtime, const Value &thisValue, const Value *arguments, size_t count) -> Value {
         auto keys = arguments[0].getObject(runtime).asArray(runtime);
         auto vals = arguments[1].getObject(runtime).asArray(runtime);
         auto kvName = nsstring(arguments[2]);
         auto size = keys.length(runtime);
         MMKV *kv = getInstance(kvName);
-        
+
         if (!kv) {
             return Value::undefined();
         }
-        
+
         for (int i = 0; i < size; i++) {
-            NSString *key = convertJSIStringToNSString(runtime, keys.getValueAtIndex(runtime, i).asString(runtime));
-            if (vals.getValueAtIndex(runtime, i).isString()) {
-                NSString *value = convertJSIStringToNSString(runtime, vals.getValueAtIndex(runtime, i).asString(runtime));
-                [kv setString:value forKey:key];
+            auto val = vals.getValueAtIndex(runtime, i);
+            if (val.isString()) {
+                NSString *key = convertJSIStringToNSString(runtime, keys.getValueAtIndex(runtime, i).asString(runtime));
+                // Store the UTF-8 bytes directly (no-copy NSData) so we skip allocating an
+                // intermediate NSString for every value. setData of UTF-8 bytes is on-disk
+                // identical to setString, so existing data stays readable via getString/getData.
+                std::string utf8 = val.asString(runtime).utf8(runtime);
+                NSData *data = [[NSData alloc] initWithBytesNoCopy:(void *)utf8.data() length:utf8.size() freeWhenDone:NO];
+                [kv setData:data forKey:key];
             }
         }
-        
+
         return jsi::Value(true);
     });
     
     CREATE_FUNCTION("getStringMMKV", 2, {
         MMKV *kv = getInstance(nsstring(arguments[1]));
-        
+
         if (!kv) return Value::undefined();
-        
-        NSString *key = nsstring(arguments[0]);
-        
-        if ([kv containsKey:key]) {
-            return Value(convertNSStringToJSIString(runtime, [kv getStringForKey:key]));
-        } else {
-            return Value::null();
-        }
+
+        // Single lookup (getDataForKey returns nil when absent) instead of containsKey + getString,
+        // and build the JSI string straight from the stored UTF-8 bytes.
+        NSData *value = [kv getDataForKey:nsstring(arguments[0])];
+        return value != nil
+            ? Value(jsi::String::createFromUtf8(runtime, (const uint8_t *)value.bytes, value.length))
+            : Value::null();
     });
     
     

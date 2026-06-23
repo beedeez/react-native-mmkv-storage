@@ -81,7 +81,12 @@ id convertJSIValueToObjCObject(
                                const jsi::Value &value);
 NSString *convertJSIStringToNSString(jsi::Runtime &runtime, const jsi::String &value)
 {
-    return [NSString stringWithUTF8String:value.utf8(runtime).c_str()];
+    // initWithBytes avoids the extra strlen scan that stringWithUTF8String performs and handles
+    // embedded NULs correctly.
+    std::string utf8 = value.utf8(runtime);
+    return [[NSString alloc] initWithBytes:utf8.data()
+                                    length:utf8.size()
+                                  encoding:NSUTF8StringEncoding] ?: @"";
 }
 
 NSArray *convertJSIArrayToNSArray(
