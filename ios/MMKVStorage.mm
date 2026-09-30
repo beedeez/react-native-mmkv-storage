@@ -40,8 +40,9 @@ struct MMKVErrorEntry {
 };
 
 // Written from any MMKV operating thread, drained from the JS thread.
-static std::mutex errorBufferMutex;
-static std::deque<MMKVErrorEntry> errorBuffer;
+// Leaked on purpose: MMKV handlers can still fire during static destruction.
+static std::mutex &errorBufferMutex = *new std::mutex();
+static std::deque<MMKVErrorEntry> &errorBuffer = *new std::deque<MMKVErrorEntry>();
 static constexpr size_t kMaxErrorEntries = 50;
 
 static void pushMMKVError(const char *type, NSString *mmapId, NSString *message) {
