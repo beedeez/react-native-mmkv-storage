@@ -163,6 +163,16 @@ You can use this library with expo [bare workflow](https://docs.expo.dev/workflo
 
 Thanks to [pnthach95](https://github.com/pnthach95/flipper-plugin-react-native-mmkv-storage/commits?author=pnthach95) Flipper plugin is finally here. https://github.com/pnthach95/flipper-plugin-react-native-mmkv-storage. It supports logging and manipulating storage values on the fly.
 
+### **Write failures and core errors (fork)**
+
+`setString` / `setStrings` return `false` when MMKV fails to write a key (every key of a batch is still attempted). MMKV core errors — CRC check failures, file length errors (both keep MMKV's default discard strategy) and error-level logs — are buffered natively (last 50) and read with:
+
+```js
+import { drainMMKVErrors } from 'react-native-mmkv-storage';
+
+drainMMKVErrors(); // [{ type, mmapId, timestamp, message? }], clears the buffer; [] before the JSI install
+```
+
 ## Consider supporting with a ⭐️ [star on GitHub](https://github.com/ammarahm-ed/react-native-mmkv-storage/)
 
 If you are using the library in one of your projects, consider supporting with a star. It takes a lot of time and effort to keep this maintained and address issues and bugs. Thank you.

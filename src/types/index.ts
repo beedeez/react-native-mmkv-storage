@@ -59,6 +59,16 @@ export type GenericReturnType<T> = [key: string, value: T | null | undefined];
 
 export type IndexType = 'stringIndex' | 'boolIndex' | 'numberIndex' | 'mapIndex' | 'arrayIndex';
 
+export type MMKVCoreError = {
+  /** `crcCheckFail` | `fileLengthError` | `errorLog` */
+  type: string;
+  /** Empty for `errorLog` entries: the id, when known, is part of `message`. */
+  mmapId: string;
+  /** Milliseconds since epoch. */
+  timestamp: number;
+  message?: string;
+};
+
 export type MMKVJsiModule = {
   setupMMKVInstance: (
     id: string,
@@ -113,4 +123,6 @@ export type MMKVJsiModule = {
 
   encryptMMKV: (cryptKey: string, id: string) => boolean | undefined;
   decryptMMKV: (id: string) => boolean | undefined;
+
+  drainMMKVErrors?: () => MMKVCoreError[];
 };

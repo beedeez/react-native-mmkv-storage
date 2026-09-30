@@ -2,6 +2,7 @@ import MMKVInstance from './src/mmkvinstance';
 import { useIndex } from './src/hooks/useIndex';
 import { create, useMMKVStorage } from './src/hooks/useMMKV';
 import { createMMKVRefHookForStorage, useMMKVRef } from './src/hooks/useMMKVRef';
+import { drainMMKVErrors } from './src/errors';
 import { getCurrentMMKVInstanceIDs } from './src/initializer';
 import MMKVLoader from './src/mmkvloader';
 import { init, isLoaded } from './src/mmkv/init';
@@ -52,6 +53,7 @@ declare const MMKVStorage: {
     };
 };
 export default MMKVStorage;
+export type { MMKVCoreError } from './src/types';
 declare const getAllMMKVInstanceIDs: () => string[], IDSTORE_ID: string;
-export { useMMKVStorage, create, useIndex, isLoaded, init, MMKVInstance, MMKVLoader, ProcessingModes, IOSAccessibleStates, getCurrentMMKVInstanceIDs, getAllMMKVInstanceIDs, IDSTORE_ID, createMMKVRefHookForStorage, useMMKVRef };
+export { useMMKVStorage, create, useIndex, isLoaded, init, MMKVInstance, MMKVLoader, ProcessingModes, IOSAccessibleStates, getCurrentMMKVInstanceIDs, getAllMMKVInstanceIDs, IDSTORE_ID, createMMKVRefHookForStorage, useMMKVRef, drainMMKVErrors };
 //# sourceMappingURL=index.d.ts.map

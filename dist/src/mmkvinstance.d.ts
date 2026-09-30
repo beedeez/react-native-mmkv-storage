@@ -85,6 +85,7 @@ export default class MMKVInstance {
     getArrayAsync<T>(key: string): Promise<T[] | null | undefined>;
     /**
      * Set a string value to storage for the given key.
+     * Returns `false` if the native write failed.
      */
     setString: (key: string, value: string) => boolean | undefined;
     /**
@@ -143,6 +144,7 @@ export default class MMKVInstance {
     /**
      * Batch-write multiple string key/value pairs in a single native call.
      * Skips indexing overhead for maximum write performance.
+     * Every key is written; returns `false` if any of the writes failed.
      */
     setStrings(items: [string, string][]): boolean | undefined;
     /**

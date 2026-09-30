@@ -5,7 +5,11 @@
 #include "MMKV.h"
 #include "MMKVPredef.h"
 #include "MMBuffer.h"
+#include <android/log.h>
 #include <algorithm>
+#include <chrono>
+#include <deque>
+#include <mutex>
 
 using namespace facebook;
 using namespace jsi;
@@ -98,6 +102,85 @@ static vector<string> jarray2vector(JNIEnv *env, jobjectArray array)
         }
     }
     return keys;
+}
+
+struct MMKVErrorEntry
+{
+    string type;
+    string mmapId;
+    string message;
+    double timestamp;
+};
+
+// Written from any MMKV operating thread, drained from the JS thread.
+static std::mutex errorBufferMutex;
+static std::deque<MMKVErrorEntry> errorBuffer;
+static constexpr size_t kMaxErrorEntries = 50;
+
+static void pushMMKVError(const char *type, const string &mmapId, const string &message)
+{
+    try
+    {
+        auto now = std::chrono::duration_cast<std::chrono::milliseconds>(
+                       std::chrono::system_clock::now().time_since_epoch())
+                       .count();
+        std::lock_guard<std::mutex> lock(errorBufferMutex);
+        if (errorBuffer.size() >= kMaxErrorEntries)
+        {
+            errorBuffer.pop_front();
+        }
+        errorBuffer.push_back({type, mmapId, message, (double)now});
+    }
+    catch (...)
+    {
+        // Reporting must never break the storage core that called us.
+    }
+}
+
+// OnErrorDiscard is what the core returns when no handler is registered (MMKV.cpp), so
+// registering this handler only records the event and keeps the recovery behaviour unchanged.
+static MMKVRecoverStrategic onMMKVError(const std::string &mmapID, MMKVErrorType errorType)
+{
+    pushMMKVError(errorType == MMKVCRCCheckFail ? "crcCheckFail" : "fileLengthError", mmapID, "");
+    return OnErrorDiscard;
+}
+
+static android_LogPriority mmkvLogPriority(MMKVLogLevel level)
+{
+    switch (level)
+    {
+    case MMKVLogDebug:
+        return ANDROID_LOG_DEBUG;
+    case MMKVLogInfo:
+        return ANDROID_LOG_INFO;
+    case MMKVLogWarning:
+        return ANDROID_LOG_WARN;
+    case MMKVLogError:
+        return ANDROID_LOG_ERROR;
+    default:
+        return ANDROID_LOG_UNKNOWN;
+    }
+}
+
+// A registered log handler replaces the core's logcat output, so it is reproduced verbatim
+// (MMKVLog_Android.cpp) before error-level lines are buffered.
+static void onMMKVLog(MMKVLogLevel level, const char *file, int line, const char *function, const std::string &message)
+{
+    const char *safeFile = file ? file : "";
+    const char *safeFunction = function ? function : "";
+    __android_log_print(mmkvLogPriority(level), "MMKV", "<%s:%d::%s> %s", safeFile, line, safeFunction, message.c_str());
+    if (level == MMKVLogError)
+    {
+        pushMMKVError("errorLog", "", string(safeFile) + ":" + to_string(line) + "::" + safeFunction + " " + message);
+    }
+}
+
+// MMKV::initializeMMKV resets the log handler, so every init path goes through here.
+// registerErrorHandler must run after initializeMMKV: it locks g_instanceLock, created by the first init.
+static void initializeMMKVWithHandlers(const string &rootDir, MMKVLogLevel logLevel = MMKVLogInfo)
+{
+    MMKV::initializeMMKV(rootDir, logLevel, onMMKVLog);
+    MMKV::registerErrorHandler(onMMKVError);
 }
 
 static MMKV *getInstance(const string &ID)
@@ -309,8 +392,31 @@ void installBindings(Runtime &jsiRuntime)
 {
 
     CREATE_FUNCTION("initializeMMKV", 0, {
-        MMKV::initializeMMKV(rPath);
+        initializeMMKVWithHandlers(rPath);
         return Value::undefined();
+    });
+
+    createFunc(jsiRuntime, "drainMMKVErrors", 0, [](Runtime &runtime, const Value &thisValue, const Value *arguments, size_t count) -> Value {
+        std::deque<MMKVErrorEntry> drained;
+        {
+            std::lock_guard<std::mutex> lock(errorBufferMutex);
+            drained.swap(errorBuffer);
+        }
+        auto result = jsi::Array(runtime, drained.size());
+        for (size_t i = 0; i < drained.size(); i++)
+        {
+            const auto &entry = drained[i];
+            jsi::Object item(runtime);
+            item.setProperty(runtime, "type", jsi::String::createFromUtf8(runtime, entry.type));
+            item.setProperty(runtime, "mmapId", jsi::String::createFromUtf8(runtime, entry.mmapId));
+            item.setProperty(runtime, "timestamp", jsi::Value(entry.timestamp));
+            if (!entry.message.empty())
+            {
+                item.setProperty(runtime, "message", jsi::String::createFromUtf8(runtime, entry.message));
+            }
+            result.setValueAtIndex(runtime, i, std::move(item));
+        }
+        return result;
     });
 
     CREATE_FUNCTION("setupMMKVInstance", 5, {
@@ -425,8 +531,8 @@ void installBindings(Runtime &jsiRuntime)
 
         string key = std_string(arguments[0]);
         setIndex(kv, "stringIndex", key);
-        kv->set(std_string(arguments[1]), key);
-        return Value(true);
+        bool written = kv->set(std_string(arguments[1]), key);
+        return Value(written);
     });
 
     CREATE_FUNCTION("setMultiMMKV", 4, {
@@ -548,17 +654,19 @@ void installBindings(Runtime &jsiRuntime)
             return Value::undefined();
         }
 
+        bool allWritten = true;
         for (int i = 0; i < size; i++)
         {
             auto key = std_string(keys.getValueAtIndex(runtime, i));
             const auto &val = values.getValueAtIndex(runtime, i);
             if (val.isString())
             {
-                kv->set(val.getString(runtime).utf8(runtime), key);
+                bool written = kv->set(val.getString(runtime).utf8(runtime), key);
+                allWritten = allWritten && written;
             }
         }
 
-        return jsi::Value(true);
+        return jsi::Value(allWritten);
     });
 
     CREATE_FUNCTION("setMapMMKV", 3, {
@@ -1062,7 +1170,7 @@ Java_com_ammarahmed_mmkv_MMKV_jniInitialize(JNIEnv *env, jclass clazz, jstring r
     const char *kstr = env->GetStringUTFChars(rootDir, nullptr);
     if (kstr)
     {
-        MMKV::initializeMMKV(kstr, (MMKVLogLevel)logLevel);
+        initializeMMKVWithHandlers(kstr, (MMKVLogLevel)logLevel);
         env->ReleaseStringUTFChars(rootDir, kstr);
     }
 }
@@ -1094,7 +1202,7 @@ private:
 
         rPath = rootPath->toStdString();
 
-        MMKV::initializeMMKV(rPath);
+        initializeMMKVWithHandlers(rPath);
 
         jni::Environment::current()->GetJavaVM(&vm);
         auto runtime = reinterpret_cast<jsi::Runtime *>(jsi);

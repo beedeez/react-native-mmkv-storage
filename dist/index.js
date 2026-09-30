@@ -26,7 +26,7 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
     return (mod && mod.__esModule) ? mod : { "default": mod };
 };
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.useMMKVRef = exports.createMMKVRefHookForStorage = exports.IDSTORE_ID = exports.getAllMMKVInstanceIDs = exports.getCurrentMMKVInstanceIDs = exports.IOSAccessibleStates = exports.ProcessingModes = exports.MMKVLoader = exports.MMKVInstance = exports.init = exports.isLoaded = exports.useIndex = exports.create = exports.useMMKVStorage = void 0;
+exports.drainMMKVErrors = exports.useMMKVRef = exports.createMMKVRefHookForStorage = exports.IDSTORE_ID = exports.getAllMMKVInstanceIDs = exports.getCurrentMMKVInstanceIDs = exports.IOSAccessibleStates = exports.ProcessingModes = exports.MMKVLoader = exports.MMKVInstance = exports.init = exports.isLoaded = exports.useIndex = exports.create = exports.useMMKVStorage = void 0;
 const mmkvinstance_1 = __importDefault(require("./src/mmkvinstance"));
 exports.MMKVInstance = mmkvinstance_1.default;
 const useIndex_1 = require("./src/hooks/useIndex");
@@ -37,6 +37,8 @@ Object.defineProperty(exports, "useMMKVStorage", { enumerable: true, get: functi
 const useMMKVRef_1 = require("./src/hooks/useMMKVRef");
 Object.defineProperty(exports, "createMMKVRefHookForStorage", { enumerable: true, get: function () { return useMMKVRef_1.createMMKVRefHookForStorage; } });
 Object.defineProperty(exports, "useMMKVRef", { enumerable: true, get: function () { return useMMKVRef_1.useMMKVRef; } });
+const errors_1 = require("./src/errors");
+Object.defineProperty(exports, "drainMMKVErrors", { enumerable: true, get: function () { return errors_1.drainMMKVErrors; } });
 const initializer_1 = require("./src/initializer");
 Object.defineProperty(exports, "getCurrentMMKVInstanceIDs", { enumerable: true, get: function () { return initializer_1.getCurrentMMKVInstanceIDs; } });
 const mmkvloader_1 = __importDefault(require("./src/mmkvloader"));

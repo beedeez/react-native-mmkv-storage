@@ -275,6 +275,7 @@ export default class MMKVInstance {
   }
   /**
    * Set a string value to storage for the given key.
+   * Returns `false` if the native write failed.
    */
   setString = (key: string, value: string): boolean | undefined => {
     if (this.transactions.beforewrite['string']) {
@@ -284,7 +285,8 @@ export default class MMKVInstance {
 
     assert('string', value);
     let result = handleAction(mmkvJsiModule.setStringMMKV, key, value, this.instanceID);
-    if (result) {
+    // Native now returns `false` for a failed write; listeners keep firing as they did before.
+    if (result !== undefined) {
       if (this.isRegisterd(key)) {
         this.ev.publish(`${key}:onwrite`, { key, value: value });
       }
@@ -615,13 +617,15 @@ export default class MMKVInstance {
   /**
    * Batch-write multiple string key/value pairs in a single native call.
    * Skips indexing overhead for maximum write performance.
+   * Every key is written; returns `false` if any of the writes failed.
    */
   setStrings(items: [string, string][]): boolean | undefined {
     if (!mmkvJsiModule.setStringsMMKV) {
+      let allWritten = true;
       for (const [key, value] of items) {
-        this.setString(key, value);
+        if (this.setString(key, value) === false) allWritten = false;
       }
-      return true;
+      return allWritten;
     }
     const keys = items.map(item => item[0]);
     const values = items.map(item => item[1]);

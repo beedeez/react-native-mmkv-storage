@@ -2,6 +2,7 @@ import MMKVInstance from './src/mmkvinstance';
 import { useIndex } from './src/hooks/useIndex';
 import { create, useMMKVStorage } from './src/hooks/useMMKV';
 import { createMMKVRefHookForStorage, useMMKVRef } from './src/hooks/useMMKVRef';
+import { drainMMKVErrors } from './src/errors';
 import { getCurrentMMKVInstanceIDs } from './src/initializer';
 import MMKVLoader from './src/mmkvloader';
 import IDStore from './src/mmkv/IDStore';
@@ -44,6 +45,8 @@ const MMKVStorage = {
 
 export default MMKVStorage;
 
+export type { MMKVCoreError } from './src/types';
+
 const { getAllMMKVInstanceIDs, STORE_ID: IDSTORE_ID } = IDStore;
 
 export {
@@ -60,5 +63,6 @@ export {
   getAllMMKVInstanceIDs,
   IDSTORE_ID,
   createMMKVRefHookForStorage,
-  useMMKVRef
+  useMMKVRef,
+  drainMMKVErrors
 };

@@ -55,6 +55,15 @@ export type StorageOptions = {
 export type DataType = 'string' | 'number' | 'object' | 'array' | 'boolean';
 export type GenericReturnType<T> = [key: string, value: T | null | undefined];
 export type IndexType = 'stringIndex' | 'boolIndex' | 'numberIndex' | 'mapIndex' | 'arrayIndex';
+export type MMKVCoreError = {
+    /** `crcCheckFail` | `fileLengthError` | `errorLog` */
+    type: string;
+    /** Empty for `errorLog` entries: the id, when known, is part of `message`. */
+    mmapId: string;
+    /** Milliseconds since epoch. */
+    timestamp: number;
+    message?: string;
+};
 export type MMKVJsiModule = {
     setupMMKVInstance: (id: string, mode?: number, cryptKey?: string, path?: string, indexing?: boolean) => boolean;
     setMMKVServiceName: (alias: string, serviceName: string) => string;
@@ -85,5 +94,6 @@ export type MMKVJsiModule = {
     clearMemoryCache: (id: string) => boolean | undefined;
     encryptMMKV: (cryptKey: string, id: string) => boolean | undefined;
     decryptMMKV: (id: string) => boolean | undefined;
+    drainMMKVErrors?: () => MMKVCoreError[];
 };
 //# sourceMappingURL=index.d.ts.map

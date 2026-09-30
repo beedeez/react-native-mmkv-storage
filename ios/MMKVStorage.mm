@@ -8,6 +8,11 @@
 #import <React/RCTBridge+Private.h>
 #import <React/RCTUtils.h>
 
+#include <chrono>
+#include <deque>
+#include <mutex>
+#include <string>
+
 
 using namespace facebook;
 using namespace jsi;
@@ -26,6 +31,92 @@ body    \
 
 #define nsstring(arg) \
 convertJSIStringToNSString(runtime, arg.getString(runtime))
+
+struct MMKVErrorEntry {
+    std::string type;
+    std::string mmapId;
+    std::string message;
+    double timestamp;
+};
+
+// Written from any MMKV operating thread, drained from the JS thread.
+static std::mutex errorBufferMutex;
+static std::deque<MMKVErrorEntry> errorBuffer;
+static constexpr size_t kMaxErrorEntries = 50;
+
+static void pushMMKVError(const char *type, NSString *mmapId, NSString *message) {
+    try {
+        auto now = std::chrono::duration_cast<std::chrono::milliseconds>(
+            std::chrono::system_clock::now().time_since_epoch()).count();
+        std::string mmapIdUtf8 = mmapId.UTF8String ?: "";
+        std::string messageUtf8 = message.UTF8String ?: "";
+        std::lock_guard<std::mutex> lock(errorBufferMutex);
+        if (errorBuffer.size() >= kMaxErrorEntries) {
+            errorBuffer.pop_front();
+        }
+        errorBuffer.push_back({type, mmapIdUtf8, messageUtf8, (double)now});
+    } catch (...) {
+        // Reporting must never break the storage core that called us.
+    }
+}
+
+static const char *RNMMKVLogLevelDesc(MMKVLogLevel level) {
+    switch (level) {
+        case MMKVLogDebug:
+            return "D";
+        case MMKVLogInfo:
+            return "I";
+        case MMKVLogWarning:
+            return "W";
+        case MMKVLogError:
+            return "E";
+        default:
+            return "N";
+    }
+}
+
+@interface RNMMKVErrorHandler : NSObject <MMKVHandler>
+@end
+
+// MMKVOnErrorDiscard is what the core returns when no handler is registered (MMKV.cpp), so
+// registering this handler only records the event and keeps the recovery behaviour unchanged.
+@implementation RNMMKVErrorHandler
+
+- (MMKVRecoverStrategic)onMMKVCRCCheckFail:(NSString *)mmapID {
+    pushMMKVError("crcCheckFail", mmapID, nil);
+    return MMKVOnErrorDiscard;
+}
+
+- (MMKVRecoverStrategic)onMMKVFileLengthError:(NSString *)mmapID {
+    pushMMKVError("fileLengthError", mmapID, nil);
+    return MMKVOnErrorDiscard;
+}
+
+// Implementing this redirects all MMKV logs away from NSLog, so the core's line is reproduced
+// verbatim (MMKVLog.cpp) before error-level lines are buffered.
+- (void)mmkvLogWithLevel:(MMKVLogLevel)level file:(const char *)file line:(int)line func:(const char *)funcname message:(NSString *)message {
+    const char *safeFile = file ?: "";
+    const char *safeFunc = funcname ?: "";
+    NSLog(@"[%s] <%s:%d::%s> %@", RNMMKVLogLevelDesc(level), safeFile, line, safeFunc, message);
+    if (level == MMKVLogError) {
+        pushMMKVError("errorLog", nil, [NSString stringWithFormat:@"%s:%d::%s %@", safeFile, line, safeFunc, message]);
+    }
+}
+
+@end
+
+static RNMMKVErrorHandler *mmkvErrorHandler = nil;
+
+// Must run after +initializeMMKV (registerHandler locks a mutex created there). Uses the
+// deprecated +registerHandler: because MMKV ignores the handler of a second +initializeMMKV call.
+static void registerMMKVErrorHandler() {
+    if (mmkvErrorHandler != nil) return;
+    mmkvErrorHandler = [[RNMMKVErrorHandler alloc] init];
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wdeprecated-declarations"
+    [MMKV registerHandler:mmkvErrorHandler];
+#pragma clang diagnostic pop
+}
 
 @implementation MMKVStorage
 @synthesize bridge = _bridge;
@@ -71,6 +162,7 @@ RCT_EXPORT_MODULE(MMKVStorage)
             rPath = rootDir;
             [MMKV initializeMMKV:rootDir];
         }
+        registerMMKVErrorHandler();
         
         if (disableMMKVBackup) {
             NSError *error = nil;
@@ -309,6 +401,27 @@ static void install(jsi::Runtime &jsiRuntime) {
         [MMKV initializeMMKV:rPath];
         return Value::undefined();
     });
+
+    CreateFunction(jsiRuntime, "drainMMKVErrors", 0, [](Runtime &runtime, const Value &thisValue, const Value *arguments, size_t count) -> Value {
+        std::deque<MMKVErrorEntry> drained;
+        {
+            std::lock_guard<std::mutex> lock(errorBufferMutex);
+            drained.swap(errorBuffer);
+        }
+        auto result = jsi::Array(runtime, drained.size());
+        for (size_t i = 0; i < drained.size(); i++) {
+            const auto &entry = drained[i];
+            jsi::Object item(runtime);
+            item.setProperty(runtime, "type", jsi::String::createFromUtf8(runtime, entry.type));
+            item.setProperty(runtime, "mmapId", jsi::String::createFromUtf8(runtime, entry.mmapId));
+            item.setProperty(runtime, "timestamp", jsi::Value(entry.timestamp));
+            if (!entry.message.empty()) {
+                item.setProperty(runtime, "message", jsi::String::createFromUtf8(runtime, entry.message));
+            }
+            result.setValueAtIndex(runtime, i, std::move(item));
+        }
+        return result;
+    });
     
     
     CREATE_FUNCTION("setupMMKVInstance", 5, {
@@ -345,9 +458,9 @@ static void install(jsi::Runtime &jsiRuntime) {
         
         NSString *key = nsstring(arguments[0]);
         setIndex(kv, @"stringIndex", key);
-        [kv setString:nsstring(arguments[1]) forKey:key];
+        BOOL written = [kv setString:nsstring(arguments[1]) forKey:key];
         
-        return Value(true);
+        return Value(written ? true : false);
     });
     
     #define std_string(arg) \
@@ -452,6 +565,7 @@ static void install(jsi::Runtime &jsiRuntime) {
             return Value::undefined();
         }
 
+        bool allWritten = true;
         for (int i = 0; i < size; i++) {
             auto val = vals.getValueAtIndex(runtime, i);
             if (val.isString()) {
@@ -461,11 +575,12 @@ static void install(jsi::Runtime &jsiRuntime) {
                 // identical to setString, so existing data stays readable via getString/getData.
                 std::string utf8 = val.asString(runtime).utf8(runtime);
                 NSData *data = [[NSData alloc] initWithBytesNoCopy:(void *)utf8.data() length:utf8.size() freeWhenDone:NO];
-                [kv setData:data forKey:key];
+                BOOL written = [kv setData:data forKey:key];
+                allWritten = allWritten && written;
             }
         }
 
-        return jsi::Value(true);
+        return jsi::Value(allWritten);
     });
     
     CREATE_FUNCTION("getStringMMKV", 2, {
